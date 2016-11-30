@@ -28,14 +28,14 @@ char const k_output[] = "output";
 char const k_swap[] = "output.temp";
 
 int main()
-{
-    std::ifstream in("input");
-    (std::ofstream(k_output));
+    {
+    std::ifstream in("input", std::ios::in | std::ios::binary);
+    (std::ofstream(k_output)); // clear output from previous run
     
     std::vector<int_t> block;
-    block.reserve(1024 * 1024 * 100 / sizeof(std::uint32_t)); //100Mb 
+    block.reserve(1024 * 1024 * 100 / sizeof(int_t)); //100Mb 
     while (in)
-    {
+        {
         int_t i;
         block.clear();
         while (block.size() < block.capacity() && in >> i)
@@ -43,10 +43,10 @@ int main()
         std::sort(block.begin(), block.end());
 
         std::rename(k_output, k_swap);
-        std::ofstream out(k_output);
-        std::ifstream swap(k_swap);
+        std::ofstream out(k_output, std::ios::out | std::ios::binary);
+        std::ifstream swap(k_swap, std::ios::in | std::ios::binary);
         std::merge(block.begin(), block.end()
                  , std::istream_iterator<int_t>(swap), std::istream_iterator<int_t>()
                  , std::ostream_iterator<int_t>(out));
+        }
     }
-}
