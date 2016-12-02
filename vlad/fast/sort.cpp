@@ -124,7 +124,7 @@ int main()
     char const k_output[] = "output";
     std::ifstream in("input", std::ios::in | std::ios::binary);
     
-    block_t block(1024 * 1024 * 100 / sizeof(block_t::value_type)); //100Mb 
+    block_t block(1024 * 1024 * 50 / sizeof(block_t::value_type)); //50Mb 
     swaps_t swaps;
     while (in)
         swaps.push_back(make_swap(in, block, swaps.size()));
