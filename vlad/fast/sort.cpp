@@ -36,9 +36,8 @@ class swap_t
             : name(name)
             , in(name, std::ios::in | std::ios::binary)
             , in_buffer(k_io_buffer_size)
-            , it(this->in_buffer.begin())
             {
-            read_block(this->in, this->in_buffer);
+            this->bufferize();
             }
 
         std::uint32_t get() const { return *this->it; }
@@ -48,22 +47,22 @@ class swap_t
         void next() 
             { 
             if (++this->it == this->in_buffer.end())
-                {
-                read_block(this->in, this->in_buffer);
-                this->it = this->in_buffer.begin();
-                }
+                this->bufferize();
             }
         
         void copy_to(std::ostream& os) 
             { 
-            if (!this->eof())
-                {
-                write_block(os, this->it, this->in_buffer.end());
-                os << this->in.rdbuf(); 
-                }
+            write_block(os, this->it, this->in_buffer.end());
+            os << this->in.rdbuf(); 
             }
     public:
         std::string const name;
+    private:
+        void bufferize()
+            {
+            read_block(this->in, this->in_buffer);
+            this->it = this->in_buffer.begin();
+            }
     private:
         std::ifstream in;
         block_t in_buffer;
