@@ -114,35 +114,36 @@ VAR r, w, i: INTEGER;
 	copy: BOOLEAN;
 BEGIN
 	IF CLI.count < 3 THEN
-		Out.String("Usage:   filesort input.file output.file"); Out.Ln
+		fin := File.Open("input", 0, "rb");
+		fout := File.Open("output", 0, "wb")
 	ELSE
 		ninLen := 0;
 		noutLen := 0;
 		copy := CLI.Get(nin, ninLen, 1) & CLI.Get(nout, noutLen, 2);
 		ASSERT(copy);
 		fin := File.Open(nin, 0, "rb");
-		fout := File.Open(nout, 0, "wb");
-		ASSERT((fin # NIL) & (fout # NIL));
+		fout := File.Open(nout, 0, "wb")
+	END;
+	ASSERT((fin # NIL) & (fout # NIL));
 
-		REPEAT
-			r := File.Read(fin, buf, 0, LEN(buf));
-			FOR i := 0 TO r - 4 BY 4 DO
-				AddToSector(sectors[ORD(buf[i + 3]) * 256 + ORD(buf[i + 2])], buf, i)
-			END
-		UNTIL r < LEN(buf);
+	REPEAT
+		r := File.Read(fin, buf, 0, LEN(buf));
+		FOR i := 0 TO r - 4 BY 4 DO
+			AddToSector(sectors[ORD(buf[i + 3]) * 256 + ORD(buf[i + 2])], buf, i)
+		END
+	UNTIL r < LEN(buf);
 
-		File.Close(fin);
+	File.Close(fin);
 
-		FOR i := 0 TO SectorsCount - 1 DO
-			WriteSector(sectors[i], i)
-		END;
+	FOR i := 0 TO SectorsCount - 1 DO
+		WriteSector(sectors[i], i)
+	END;
 
-		IF out.i > 0 THEN
-			w := File.Write(fout, out.buf, 0, out.i);
-			ASSERT(w = out.i)
-		END;
-		File.Close(fout)
-	END
+	IF out.i > 0 THEN
+		w := File.Write(fout, out.buf, 0, out.i);
+		ASSERT(w = out.i)
+	END;
+	File.Close(fout)
 END Go;
 
 BEGIN
