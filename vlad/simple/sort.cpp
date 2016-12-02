@@ -33,7 +33,7 @@ int main()
     (std::ofstream(k_output)); // clear output from previous run
     
     std::vector<int_t> block;
-    block.reserve(1024 * 1024 * 50 / sizeof(int_t)); //50Mb 
+    block.reserve(1024 * 1024 * 100 / sizeof(int_t)); //100Mb 
     while (in)
         {
         int_t i;
