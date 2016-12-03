@@ -1,0 +1,15 @@
+elena linux_mmap:
+128 9.38
+256 24.51
+comdiv hardcore:
+128 13.47
+256 33.92
+vlad fast:
+128 7.49
+256 14.13
+elena files_merge:
+128 failed
+256 58.01
+vlad simple:
+128 10.56
+256 26.96
