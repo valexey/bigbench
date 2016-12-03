@@ -1,5 +1,4 @@
 #include <boost/format.hpp>
-#include <boost/iterator/transform_iterator.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <algorithm>
 #include <fstream>
@@ -27,27 +26,26 @@ read_block(std::istream& in, block_t& b)
     b.resize(in.gcount() / sizeof(block_t::value_type));
     }
 
-int const k_io_buffer_size = 1024 * 256 / sizeof(block_t::value_type); // 256kb
-
 class swap_t
     {
     public:
-        swap_t(std::string const& name)
+        swap_t(std::string const& name, int buffer_size)
             : name(name)
             , in(name, std::ios::in | std::ios::binary)
-            , in_buffer(k_io_buffer_size)
+            , in_buffer(buffer_size)
             {
             this->bufferize();
             }
 
         std::uint32_t get() const { return *this->it; }
         
-        bool eof() const { return this->it == this->in_buffer.end(); }
-        
-        void next() 
+        bool next() 
             { 
-            if (++this->it == this->in_buffer.end())
-                this->bufferize();
+            if (++this->it != this->in_buffer.end())
+                return true;
+            
+            this->bufferize();
+            return this->it != this->in_buffer.end();;
             }
         
         void copy_to(std::ostream& os) 
@@ -69,50 +67,78 @@ class swap_t
         block_t::const_iterator it;
     };
 
-std::uint32_t swap_get(swap_t const& s){ return s.get(); }
-
-bool swap_eof(swap_t const& s){return s.eof();}
-
 typedef boost::ptr_vector<swap_t> swaps_t;
 
-std::auto_ptr<swap_t>
-make_swap(std::istream& in, block_t& block, int counter)
+std::string
+swap_name(int i)
     {
-    read_block(in, block);
-    std::sort(block.begin(), block.end());
-
-    auto name = str(boost::format("swap.%1%") % counter);
-        {
-        std::ofstream out(name, std::ios::out | std::ios::binary);
-        write_block(out, block);
-        }
-    return std::auto_ptr<swap_t>(new swap_t(name));
+    return str(boost::format("swap.%1%") % i);
     }
 
-void merge(swaps_t& swaps, std::ostream& out)
+bool
+make_swap(std::istream& in, block_t& block, std::string const& name)
     {
-    swaps.erase_if(&swap_eof);
-    
-    if (swaps.empty())
+    read_block(in, block);
+    if (block.empty())
+        return false;
+
+    std::sort(block.begin(), block.end());
+
+    std::ofstream out(name, std::ios::out | std::ios::binary);
+    write_block(out, block);
+    return true;
+    }
+
+int const k_max_buffer_size = 1024 * 1024 * 100 / sizeof(block_t::value_type); //100Mb
+
+int
+divide(std::istream& in)
+    {
+    int counter = 0;
+    block_t block(k_max_buffer_size); 
+    while (make_swap(in, block, swap_name(counter)))
+        ++counter;
+    return counter;
+    }
+
+void merge(int count, std::ostream& out)
+    {
+    if (!count)
         return;
 
+    // make sure to not exceed memory limit even in case of memory fragmentation 
+    // - divide calculated ideal size by 10
+    int const buffer_size = k_max_buffer_size / count / 10; 
+
+    swaps_t swaps;
+    std::vector<std::uint32_t> swap_heads;
+    for(int i = 0; i < count; ++i)
+        {
+        swaps.push_back(new swap_t(swap_name(i), buffer_size));
+        swap_heads.push_back(swaps.back().get());
+        }
+
     block_t out_buffer;
-    out_buffer.reserve(k_io_buffer_size);
+    out_buffer.reserve(buffer_size);
+
     while (swaps.size() > 1)
         {
-        auto min_it = std::min_element(boost::make_transform_iterator(swaps.begin(), &swap_get)
-                                     , boost::make_transform_iterator(swaps.end(), &swap_get));
-        out_buffer.push_back(*min_it);
+        auto it = std::min_element(swap_heads.begin(), swap_heads.end());
+        out_buffer.push_back(*it);
         if (out_buffer.size() == out_buffer.capacity())
             {
             write_block(out, out_buffer);
             out_buffer.clear();
             }
 
-        auto it = min_it.base();
-        it->next();
-        if (it->eof())
-            swaps.erase(it);
+        auto swap_it = swaps.begin() + (it - swap_heads.begin());
+        if (swap_it->next())
+            *it = swap_it->get();
+        else
+            {
+            swaps.erase(swap_it);
+            swap_heads.erase(it);
+            }
         }
     
     write_block(out, out_buffer);
@@ -124,13 +150,9 @@ int main()
     char const k_output[] = "output";
     std::ifstream in("input", std::ios::in | std::ios::binary);
     
-    block_t block(1024 * 1024 * 50 / sizeof(block_t::value_type)); //50Mb 
-    swaps_t swaps;
-    while (in)
-        swaps.push_back(make_swap(in, block, swaps.size()));
-
-    if (swaps.size() == 1) // optimize the case when the input was fit in a single swap
-        std::rename(swaps.front().name.c_str(), k_output);
+    auto swaps = divide(in);
+    if (swaps == 1) // optimize the case when the input was fit in a single swap
+        std::rename(swap_name(0).c_str(), k_output);
     else
         {
         std::ofstream out(k_output, std::ios::out | std::ios::binary);
