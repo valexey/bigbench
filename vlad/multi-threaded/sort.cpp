@@ -77,7 +77,7 @@ swap_name(int i)
     return str(boost::format("swap.%1%") % i);
     }
 
-int const k_max_buffer_size = 1024 * 1024 * 100 / sizeof(block_t::value_type); //100Mb
+int const k_max_buffer_size = 1024 * 1024 * 50 / sizeof(block_t::value_type); //50Mb
 int const k_sorting_threads_count = 2;
 int const k_sorting_block_size = k_max_buffer_size / (k_sorting_threads_count + 1);
 
