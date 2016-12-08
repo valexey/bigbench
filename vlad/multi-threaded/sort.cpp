@@ -47,7 +47,7 @@ class swap_t
                 return true;
             
             this->bufferize();
-            return this->it != this->in_buffer.end();;
+            return this->it != this->in_buffer.end();
             }
         
         void copy_to(std::ostream& os) 
@@ -95,29 +95,29 @@ struct n_block_t : block_t
 class queue_t
     {
     public:
+        queue_t();
+
         bool empty() const;
-        bool wait_for_empty() const;
         void push(std::unique_ptr<n_block_t>);
         std::unique_ptr<n_block_t> pop();
+        void close();
     private:
         mutable boost::condition_variable cond;
         mutable boost::mutex mutex;
         boost::ptr_vector<n_block_t> blocks;
+        bool closed;
     };
+
+queue_t::queue_t()
+    : closed(false)
+    {
+    }
 
 bool 
 queue_t::empty() const
     {
     boost::unique_lock<boost::mutex> lock(this->mutex);
     return this->blocks.empty();
-    }
-
-bool
-queue_t::wait_for_empty() const
-    {
-    boost::unique_lock<boost::mutex> lock(this->mutex);
-    while (!this->blocks.empty())
-        this->cond.wait(lock);
     }
 
 void
@@ -135,12 +135,23 @@ std::unique_ptr<n_block_t>
 queue_t::pop()
     {
     boost::unique_lock<boost::mutex> lock(this->mutex);
-    while (this->blocks.empty())
+    while (this->blocks.empty() && !this->closed)
         this->cond.wait(lock);
 
+    if (this->blocks.empty())
+        return std::unique_ptr<n_block_t>();
+    
     auto result = this->blocks.pop_back();
     this->cond.notify_one();
     return std::unique_ptr<n_block_t>(result.release());
+    }
+
+void
+queue_t::close()
+    {
+    boost::unique_lock<boost::mutex> lock(this->mutex);
+    this->closed = true;
+    this->cond.notify_all();
     }
 
 class sort_threads_t
@@ -154,11 +165,14 @@ class sort_threads_t
         queue_t& sort_queue;
         queue_t& write_queue;
         boost::thread threads[k_sorting_threads_count];
+        mutable boost::mutex mutex;
+        int finished_count;
     };
 
 sort_threads_t::sort_threads_t(queue_t& sort, queue_t& write)
     : sort_queue(sort)
     , write_queue(write)
+    , finished_count(0)
     {
     for(auto &t: this->threads)
         t = boost::thread([this](){this->run();});
@@ -167,10 +181,7 @@ sort_threads_t::sort_threads_t(queue_t& sort, queue_t& write)
 sort_threads_t::~sort_threads_t()
     {
     for(auto &t: this->threads)
-        {
-        t.interrupt();
         t.join();
-        }
     }
 
 void
@@ -181,17 +192,18 @@ sort_threads_t::run()
         std::sort(b->begin(), b->end());
         this->write_queue.push(std::move(b));
         }
+
+    boost::unique_lock<boost::mutex> lock(this->mutex);
+    if (++this->finished_count == k_sorting_threads_count)
+        this->write_queue.close();
     }
 
-void
-flush_write_queue(queue_t& write_queue)
+bool
+write_block(n_block_t const& block)
     {
-    while (!write_queue.empty())
-        {
-        auto block = write_queue.pop();
-        std::ofstream out(swap_name(block->i), std::ios::out | std::ios::binary);
-        write_block(out, *block);
-        }
+    std::ofstream out(swap_name(block.i), std::ios::out | std::ios::binary);
+    write_block(out, block);
+    return true;
     }
 
 bool
@@ -216,13 +228,17 @@ divide(std::istream& in)
         sort_threads_t sort_threads(sort_queue, write_queue);
         while (make_swap(in, sort_queue, counter))
             {
-            flush_write_queue(write_queue);
+            while (!write_queue.empty())
+                if (auto block = write_queue.pop())
+                    write_block(*block);
+
             ++counter;
             }
 
-        sort_queue.wait_for_empty();
+        sort_queue.close();
+        while (auto block = write_queue.pop())
+            write_block(*block);
         }
-    flush_write_queue(write_queue);
 
     return counter;
     }
