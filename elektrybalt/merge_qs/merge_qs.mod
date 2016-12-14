@@ -1,27 +1,26 @@
-MODULE sort;
+MODULE merge_qs;
 
-IMPORT ChanConsts, IOChan, RndFile;
+IMPORT IOConsts, ChanConsts, IOChan, RndFile;
 IMPORT SYSTEM, Strings, WholeStr;
-FROM Storage IMPORT ALLOCATE;
+FROM Storage IMPORT ALLOCATE, DEALLOCATE;
 
-CONST ibLen = 25*1024*1024;
-      obLen = 1024;
-      rbLen = 1024;
-      runLimit = 300; 
+CONST ibLen = 24*1024*1024;
+      obLen =   1024;
+      rbLen = 4*1024;
+      runLimit = 128; 
 
 TYPE  Key = CARDINAL;
 
 VAR 
     inbuf:  ARRAY [1..ibLen] OF Key; 
 
-VAR 
     output: IOChan.ChanId;
     outPtr: INTEGER;
     outBuf: ARRAY [1..obLen] OF Key; 
 
   PROCEDURE OpenOut;
   VAR res  : ChanConsts.OpenResults;
-  BEGIN
+  BEGIN     
     RndFile.OpenClean(output, 'output', RndFile.old+RndFile.raw, res);
     outPtr := 0;
   END OpenOut;
@@ -33,37 +32,36 @@ VAR
   END FlushOut;
 
   PROCEDURE PutOut(x : Key);
-  BEGIN
+  BEGIN     
     INC(outPtr);
     outBuf[outPtr] := x;
     IF outPtr = obLen THEN FlushOut END;
   END PutOut;
 
   PROCEDURE CloseOut;
-  BEGIN
+  BEGIN     
     IF outPtr > 0 THEN FlushOut END;
     RndFile.Close(output);
     outPtr := 0;
   END CloseOut;
 
 TYPE 
-     CARD8 = SYSTEM.CARD8;
-     RunBuf = ARRAY [0..rbLen-1] OF CARD8;
+     RunBuf = ARRAY [0..rbLen-1] OF CHAR;
      Run = RECORD
         ch: IOChan.ChanId;
         ptr: CARDINAL;
         len: CARDINAL;
         last: Key;
-        buf: POINTER TO RunBuf;
+        buf: POINTER TO RunBuf; 
       END;
 VAR 
     runCount: INTEGER;
     run:  ARRAY [1..runLimit] OF Run;
-
+    
   PROCEDURE OpenRun;
   VAR res  : ChanConsts.OpenResults;
       name: ARRAY [0..16] OF CHAR;
-  BEGIN
+  BEGIN     
     WholeStr.IntToStr(runCount, name);
     Strings.Insert("run", 0, name);
     INC(runCount);
@@ -82,68 +80,69 @@ VAR
     r.ptr := 0;
   END FlushRun;
 
-  PROCEDURE PutRun(x: Key);
+  PROCEDURE ToRun(x: Key);
   VAR dx: Key;
   BEGIN 
     WITH run[runCount] DO
       IF ptr + 4 >= SIZE(RunBuf) THEN FlushRun(run[runCount]) END;
       dx := x - last;
       WHILE (dx > 127) DO 
-        buf^[ptr] := dx MOD 128 + 128;
+        buf^[ptr] := CHR(dx MOD 128 + 128);
         INC(ptr);
         dx := dx DIV 128 
       END;
-      buf^[ptr] := dx;
+      buf^[ptr] := CHR(dx);
       INC(ptr);
       last := x;
     END
-  END PutRun;
+  END ToRun;
 
-  PROCEDURE ReadRunBuf(VAR r:Run);
-  BEGIN
+  PROCEDURE FillRunBuf(VAR r:Run);
+  BEGIN     
     r.ptr := 0;
     IOChan.RawRead(r.ch, SYSTEM.ADR(r.buf^), SIZE(RunBuf), r.len);
     IF r.len = 0 THEN  RndFile.Close(r.ch) END;
-  END ReadRunBuf;
+  END FillRunBuf;
 
   PROCEDURE ResetRuns;
    VAR i : INTEGER; 
-  BEGIN
+  BEGIN     
     FOR i := 1 TO runCount DO 
       IF run[i].ptr > 0 THEN  FlushRun(run[i]) END;
       RndFile.SetPos(run[i].ch, RndFile.StartPos(run[i].ch));
-      ReadRunBuf(run[i]);
+      FillRunBuf(run[i]);
       run[i].last:= 0;
     END;
   END ResetRuns;
 
-  PROCEDURE NextByte(VAR r:Run):CARD8; 
-  VAR b : CARD8;
-  BEGIN
+  PROCEDURE NextByte(VAR r:Run):CHAR; 
+  VAR b : CHAR;
+  BEGIN     
     IF r.ptr >= r.len THEN  
-      IF r.len = 0 THEN  RETURN 0 END;
-      ReadRunBuf(r);
+      IF r.len = 0 THEN  RETURN 0C END;
+      FillRunBuf(r);
     END;
     b := r.buf^[r.ptr];
     INC(r.ptr);
     RETURN b
   END NextByte;
 
-  PROCEDURE GetRun(VAR r:Run; VAR res:Key; VAR ok:BOOLEAN);
-  VAR b, x, s:CARDINAL; 
+  PROCEDURE FromRun(i: INTEGER; VAR res:Key):BOOLEAN;
+  VAR b, x, s:CARDINAL;
   BEGIN
-    x := 0; s := 1; 
-    b := NextByte(r);
-    WHILE b > 127 DO 
-      INC(x, (b - 128)*s); 
-      s := s * 128; 
-      b := NextByte(r);
+    x := 0; s := 1;
+    b := ORD(NextByte(run[i]));
+    WHILE b > 127 DO
+      INC(x, (b - 128)*s);
+      s := s * 128;
+      b := ORD(NextByte(run[i]));
     END;
-    INC(x, b * s); 
-    res := r.last + x;
-    r.last := res;
-    ok := r.len > 0;
-  END GetRun;
+    INC(x, b * s);
+    res := run[i].last + x;
+    run[i].last := res;
+    RETURN run[i].len > 0;
+  END FromRun;
+
 
   PROCEDURE SortIn(l, r: INTEGER);
     VAR i, j: INTEGER; w, x: Key;
@@ -175,29 +174,29 @@ VAR
       len := locsRead DIV 4;
       SortIn(1, len);
       OpenRun; 
-      FOR i := 1 TO len DO PutRun(inbuf[i]) END;
+      FOR i := 1 TO len DO ToRun(inbuf[i]) END;
     END;
     RndFile.Close(input);
   END Distribute;
 
-VAR 
-  runTop: ARRAY [1..runLimit] OF Key; 
+VAR
+  runTop: ARRAY [1..runLimit] OF Key;
 
   PROCEDURE Merge;
     VAR i, imin  : INTEGER; ok:BOOLEAN;
+         res: ChanConsts.OpenResults;
+         x : Key;
   BEGIN
     OpenOut;
     ResetRuns;
-    FOR i := 1 TO runCount DO 
-      GetRun(run[i], runTop[i], ok) 
-    END;
+    FOR i := 1 TO runCount DO ok := FromRun(i, runTop[i]) END;
     REPEAT
       imin := 1;
       FOR i := 1 TO runCount DO IF runTop[i] < runTop[imin] THEN imin:= i END END;
       PutOut(runTop[imin]);
-      GetRun(run[imin], runTop[imin], ok);
+      ok := FromRun(imin, runTop[imin]);
       IF ~ok THEN
-        IF imin < runCount  THEN
+        IF imin < runCount THEN
           run[imin] := run[runCount];
           runTop[imin] := runTop[runCount]
         END;
@@ -209,6 +208,6 @@ VAR
 
 
 BEGIN
-  Distribute;
+  Distribute; 
   Merge;
-END sort.
+END merge_qs.
