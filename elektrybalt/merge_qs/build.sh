@@ -1,2 +1,2 @@
-xc  =m merge_qs.mod  -checkindex -checknil  -checkproc -checkrange  +procinline
-rm *.o *.mkf
+gm2 merge_qs.mod -o sort -fiso -O3
+rm *.o *.s
