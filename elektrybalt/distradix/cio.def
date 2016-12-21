@@ -1,0 +1,132 @@
+DEFINITION MODULE FOR "C" cio;
+IMPORT SYSTEM;
+FROM SYSTEM IMPORT ADDRESS, LOC;
+EXPORT UNQUALIFIED 
+  O_RDONLY, O_WRONLY, O_RDWR, 
+  O_CREAT, O_TRUNC, O_LARGEFILE, 
+  SEEK_SET, SEEK_CUR, SEEK_END,
+  S_IREAD, S_IWRITE,
+  FDesc, FILE,
+  (**)
+  open,  creat, read, write, close, lseek, pread, pwrite, 
+  open64, creat64, lseek64, pread64, pwrite64,
+(*  ====== *)
+  fopen,  fread, fwrite, fclose, fseek, rewind,
+  fread_unlocked,
+  fwrite_unlocked,
+  fopen64, fseeko64, 
+  printf, sprintf, putchar;
+
+TYPE
+  FDesc = INTEGER;
+  size_t= INTEGER;
+  off_t = INTEGER;
+  off64_t = SYSTEM.INTEGER64;
+(*
+  fpos_t = INTEGER;
+*)
+TYPE 
+  FILE;
+  
+
+CONST 
+  SEEK_SET = 0;
+  SEEK_CUR = 1;
+  SEEK_END = 2;
+
+  O_RDONLY    = 0;
+  O_WRONLY    = 1;
+  O_RDWR      = 2;
+
+  O_CREAT = 40H;
+  O_TRUNC = 200H;
+  O_LARGEFILE = 8000H;
+
+  S_IREAD =100H;
+  S_IWRITE =80H;
+CLOCKS_PER_SEC = 1000000;
+(*  ====== *)
+PROCEDURE fclose (stream: FILE): [INTEGER];
+PROCEDURE fflush (stream: FILE): [INTEGER];
+
+PROCEDURE fopen(filename, mode: ARRAY OF CHAR): FILE;
+PROCEDURE fopen64(filename, mode: ARRAY OF CHAR): FILE;
+
+PROCEDURE freopen (filename, mode: ARRAY OF CHAR; stream: FILE): FILE;
+PROCEDURE fdopen (fd: FDesc; mode: ARRAY OF CHAR): FILE;
+
+PROCEDURE setbuf (stream: FILE;  VAR buf: ARRAY OF CHAR);
+PROCEDURE setvbuf (stream: FILE; VAR buf: ARRAY OF CHAR; mode: INTEGER; size: size_t): INTEGER;
+PROCEDURE setbuffer (stream: FILE; VAR buf: ARRAY OF CHAR; size: size_t): INTEGER;
+PROCEDURE setlinebuf (stream: FILE);
+
+(*  7.19.8 *)
+PROCEDURE fread(buf: ADDRESS; size: size_t; n: size_t; stream: FILE): size_t;
+PROCEDURE fread_unlocked(buf: ADDRESS; size: size_t; n: size_t; stream: FILE): size_t;
+PROCEDURE fwrite(buf: ADDRESS; size: size_t; n: size_t; stream: FILE): [size_t];
+PROCEDURE fwrite_unlocked(buf: ADDRESS; size: size_t; n: size_t; stream: FILE): [size_t];
+
+(*  7.19.9 *)
+PROCEDURE rewind (stream: FILE);
+
+PROCEDURE fseek (stream: FILE; offset: INTEGER; whence: INTEGER): [INTEGER];
+PROCEDURE fseeko (stream: FILE; offset: off_t; whence: INTEGER): [INTEGER];
+PROCEDURE fseeko64 (stream: FILE; offset: off64_t; whence: INTEGER): [INTEGER];
+
+PROCEDURE ftell (stream: FILE): INTEGER;
+PROCEDURE ftello(stream: FILE): off_t;
+PROCEDURE ftello64(stream: FILE): off64_t;
+(*
+PROCEDURE fgetpos (stream: FILE; VAR pos: fpos_t): [INTEGER];
+PROCEDURE fsetpos (stream: FILE; VAR pos: fpos_t): [INTEGER];
+*)
+(*  7.19.10 *)
+
+PROCEDURE clearerr (stream: FILE);
+PROCEDURE feof (stream: FILE): INTEGER;
+PROCEDURE ferror (stream: FILE): INTEGER;
+PROCEDURE perror (errMsg: ARRAY OF CHAR);
+
+(*  ====== *)
+PROCEDURE  open(filename: ARRAY OF CHAR; oflag, mode: INTEGER): FDesc;  
+PROCEDURE  open64(filename: ARRAY OF CHAR; oflag,mode: INTEGER): FDesc;  
+PROCEDURE  creat(filename: ARRAY OF CHAR; mode: INTEGER): FDesc;
+PROCEDURE  creat64(filename: ARRAY OF CHAR; mode: INTEGER): FDesc;
+
+PROCEDURE close(fd: FDesc): [INTEGER];
+
+PROCEDURE lockf (fd: FDesc; cmd: INTEGER; len: off_t): [INTEGER];
+PROCEDURE lockf64 (fd: FDesc; cmd: INTEGER; len: off64_t): [INTEGER];
+
+PROCEDURE fsync(fd: FDesc): INTEGER;
+
+PROCEDURE lseek(fd: FDesc;   offset: INTEGER; origin: INTEGER): [INTEGER];
+PROCEDURE lseek64(fd: FDesc; offset: off64_t; origin: INTEGER): [off64_t];
+
+PROCEDURE read    (fd: FDesc; buf: ADDRESS; n: INTEGER): [INTEGER];
+PROCEDURE write   (fd: FDesc; buf: ADDRESS; n: INTEGER): [INTEGER];
+PROCEDURE pread   (fd: FDesc; buf: ADDRESS; n: INTEGER; offset: off_t): [INTEGER];
+PROCEDURE pwrite  (fd: FDesc; buf: ADDRESS; n: INTEGER; offset: off_t): [INTEGER];
+PROCEDURE pread64 (fd: FDesc; buf: ADDRESS; n: INTEGER; offset: off64_t): [INTEGER];
+PROCEDURE pwrite64(fd: FDesc; buf: ADDRESS; n: INTEGER; offset: off64_t): [INTEGER];
+
+PROCEDURE ftruncate (fd: FDesc; length: off_t): INTEGER;
+PROCEDURE ftruncate64 (fd: FDesc; length: off64_t): INTEGER;
+
+PROCEDURE posix_fadvise  (fd: FDesc; offset: off_t;   len: off_t;   advise: INTEGER): INTEGER;
+PROCEDURE posix_fadvise64(fd: FDesc; offset: off64_t; len: off64_t; advise: INTEGER): INTEGER;
+PROCEDURE posix_fallocate   (fd: FDesc; offset: off_t;   len: off_t): INTEGER;
+PROCEDURE posix_fallocate64 (fd: FDesc; offset: off64_t; len: off64_t): INTEGER;
+
+PROCEDURE mmap  (addr: ADDRESS; len: INTEGER; prot: INTEGER; flags: INTEGER; fd: FDesc; offset: off_t): ADDRESS;
+PROCEDURE mmap64(addr: ADDRESS; len: INTEGER; prot: INTEGER; flags: INTEGER; fd: FDesc; offset: off64_t): ADDRESS;
+PROCEDURE munmap(addr: ADDRESS; len: INTEGER): INTEGER;
+
+PROCEDURE madvise (addr: ADDRESS; len: INTEGER;  advice: INTEGER): INTEGER;
+PROCEDURE posix_madvise (addr: ADDRESS; len: INTEGER;  advice: INTEGER): INTEGER;
+
+PROCEDURE printf(format: ARRAY OF CHAR; ...) : [ INTEGER ] ;
+PROCEDURE sprintf(VAR dest: ARRAY OF CHAR; format: ARRAY OF CHAR; ...) : [ INTEGER ] ;
+PROCEDURE putchar(ch: INTEGER): [INTEGER];
+
+END cio.
