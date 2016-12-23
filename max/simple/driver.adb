@@ -2,7 +2,6 @@ with Interfaces;
 with Ada.Streams.Stream_IO;
 with Ada.Sequential_IO;
 with Ada.Directories;
-with Ada.Containers.Generic_Array_Sort;
 with Ada.Containers.Generic_Constrained_Array_Sort;
 with Ada.Unchecked_Deallocation;
 
@@ -23,28 +22,18 @@ procedure Driver is
      Value'Size / Ada.Streams.Stream_Element'Size;
    --  Size of Value in bytes
 
-   Piece_Size : constant := 30 * 1024 * 1024;
+   Piece_Size : constant := 100 * 1024 * 1024;
    --  Size of Piece in bytes
 
    Values_Per_Piece : constant := Piece_Size / Value_Size;
    --  Number of values per one Piece
 
-   subtype Index_Type is Natural range 1 .. Values_Per_Piece;
-   type Piece is array (Index_Type) of Value;
-
    type Piece_Index is new Positive range
      1 .. Natural ((File_Size - 1) / Piece_Size) + 1;
+   --  Index of Piece in input file
 
    function Piece_File_Name (Index : Piece_Index) return String;
    --  Return file name for temporary storage of the Piece with given Index
-
-   procedure Read_Piece
-     (Data  : in out Piece;
-      Input : Ada.Streams.Stream_IO.File_Type);
-   --  Read Piece from given Input
-
-   procedure Write_Piece (Data : Piece; Index : Piece_Index);
-   --  Write Piece with given index to temporary file
 
    procedure Write_All_Pieces;
    --  Read input in chunk of Piece_Size, sort each chunk and write to
@@ -53,67 +42,66 @@ procedure Driver is
    procedure Join_All_Pieces;
    --  Join each piece in a sorted steam and write result to output
 
+   package Value_IO is new Ada.Sequential_IO (Value);
+
    ---------------------
    -- Join_All_Pieces --
    ---------------------
 
    procedure Join_All_Pieces is
-      package Value_IO is new Ada.Sequential_IO (Value);
 
       Output : Value_IO.File_Type;
 
-      type Map_Index is new Piece_Index;
-      type Mapping is array (Map_Index range <>) of Piece_Index;
+      type File_Index is new Piece_Index;
 
-      function Less (Left, Right : Piece_Index) return Boolean;
-
-      procedure Sort is new Ada.Containers.Generic_Array_Sort
-        (Index_Type   => Map_Index,
-         Element_Type => Piece_Index,
-         Array_Type   => Mapping,
-         "<"          => Less);
-
-      Input : array (Piece_Index) of Value_IO.File_Type;
+      Input : array (File_Index) of Value_IO.File_Type;
       Item  : array (Piece_Index) of Value;
-
-      ----------
-      -- Less --
-      ----------
-
-      function Less (Left, Right : Piece_Index) return Boolean is
-      begin
-         return Item (Left) < Item (Right);
-      end Less;
-
-      Map   : Mapping (1 .. Item'Length);
-      Last  : Map_Index := Map'Last;
-      Next  : Value;
+      Map   : array (Piece_Index) of File_Index;
+      Last  : Piece_Index := Item'Last;
+      Index : Piece_Index;
+      Found : Value;
+      Count : Ada.Directories.File_Size := File_Size / Value_Size;
    begin
       Value_IO.Create (Output, Name => Output_Name);
 
       for J in Item'Range loop
+         Map (J) := File_Index (J);
          Value_IO.Open
-           (Input (J), Value_IO.In_File, Piece_File_Name (J));
-         Value_IO.Read (Input (J), Item (J));
-         Map (Map_Index (J)) := J;
+           (Input (Map (J)), Value_IO.In_File, Piece_File_Name (J));
+         Value_IO.Read (Input (Map (J)), Item (J));
       end loop;
 
-      Sort (Map);
+      while Count > 0 loop
+         --  Look for index of the least Value of Item
+         Index := 1;
+         Found := Item (Index);
 
-      for J in 1 .. File_Size / Value_Size loop
-         Next := Item (Map (1));
-         Value_IO.Write (Output, Next);
-
-         if Value_IO.End_Of_File (Input (Map (1))) then
-            Map (1) := Map (Last);
-            Last := Last - 1;
-            Sort (Map (1 .. Last));
-         else
-            Value_IO.Read (Input (Map (1)), Item (Map (1)));
-
-            if Next /= Item (Map (1)) then
-               Sort (Map (1 .. Last));
+         for J in 2 .. Last loop
+            if Item (J) < Found then
+               Index := J;
+               Found := Item (Index);
             end if;
+         end loop;
+
+         Value_IO.Write (Output, Found);
+         Count := Count - 1;
+
+         if not Value_IO.End_Of_File (Input (Map (Index))) then
+            loop
+               Value_IO.Read (Input (Map (Index)), Item (Index));
+
+               exit when Item (Index) /= Found;
+
+               Value_IO.Write (Output, Found);
+               Count := Count - 1;
+
+               exit when Count = 0
+                 or Value_IO.End_Of_File (Input (Map (Index)));
+            end loop;
+         elsif Last > 1 then
+            Item (Index) := Item (Last);
+            Map (Index) := Map (Last);
+            Last := Last - 1;
          end if;
       end loop;
    end Join_All_Pieces;
@@ -129,92 +117,37 @@ procedure Driver is
       return Name;
    end Piece_File_Name;
 
-   -----------------
-   -- Read_Piece --
-   -----------------
-
-   procedure Read_Piece
-     (Data  : in out Piece;
-      Input : Ada.Streams.Stream_IO.File_Type)
-   is
-      Piece : Ada.Streams.Stream_Element_Array (1 .. Piece_Size);
-      for Piece'Address use Data'Address;
-      pragma Import (Ada, Piece);
-
-      Bytes : Ada.Streams.Stream_Element_Offset;
-      Last  : Index_Type;
-   begin
-      Ada.Streams.Stream_IO.Read (Input, Piece, Bytes);
-      Last := Index_Type (Bytes / Value_Size);
-
-      if Last < Data'Last then
-         Data (Last + 1 .. Data'Last) := (others => Value'Last);
-      end if;
-   end Read_Piece;
-
    ----------------------
    -- Write_All_Pieces --
    ----------------------
 
    procedure Write_All_Pieces is
-      type Piece_Access is access all Piece;
+      subtype Index_Type is Natural range 1 .. Values_Per_Piece;
+      type Piece_Half is array (Index_Type) of Value;
 
-      procedure Free is new Ada.Unchecked_Deallocation (Piece, Piece_Access);
+      type Piece_Access is access all Piece_Half;
+
+      procedure Read_Piece
+        (Data  : in out Piece_Half;
+         Input : Ada.Streams.Stream_IO.File_Type);
+      --  Read Piece_Half from given Input
+
+      procedure Join (Left, Right : Piece_Half; Index : Piece_Index);
+      --  Join two Piece_Half and write into temporary file with given Index
+
+      procedure Free is
+        new Ada.Unchecked_Deallocation (Piece_Half, Piece_Access);
 
       procedure Do_Sort is new Ada.Containers.Generic_Constrained_Array_Sort
         (Index_Type   => Index_Type,
          Element_Type => Value,
-         Array_Type   => Piece);
+         Array_Type   => Piece_Half);
 
-      protected Queue is
-         entry Put
-           (Unused : out Piece_Access;
-            Piece  : Piece_Access;
-            Index  : Piece_Index);
-
-         entry Get
-           (Unused : Piece_Access;
-            Piece  : out Piece_Access;
-            Index  : out Piece_Index);
-
-      private
-         Full          : Boolean := False;
-         Current_Piece : Piece_Access;
-         Current_Index : Piece_Index;
-         Unused_Piece  : Piece_Access;
-      end Queue;
-
-      task type Sorter;
-
-      -----------
-      -- Queue --
-      -----------
-
-      protected body Queue is
-
-         entry Get
-           (Unused : Piece_Access;
-            Piece  : out Piece_Access;
-            Index  : out Piece_Index) when Full is
-         begin
-            Piece := Current_Piece;
-            Index := Current_Index;
-            Unused_Piece := Unused;
-            Full := False;
-         end Get;
-
-         entry Put
-           (Unused : out Piece_Access;
-            Piece  : Piece_Access;
-            Index  : Piece_Index) when not Full is
-         begin
-            Unused := Unused_Piece;
-            Current_Piece := Piece;
-            Current_Index := Index;
-            Full := True;
-         end Put;
-
-      end Queue;
+      task Sorter is
+         entry Start_Sorting (Piece : Piece_Access);
+         entry Complete;
+         entry Stop;
+      end Sorter;
 
       ------------
       -- Sorter --
@@ -222,26 +155,80 @@ procedure Driver is
 
       task body Sorter is
          Data  : Piece_Access;
-         Index : Piece_Index;
       begin
          loop
-            Queue.Get
-              (Unused  => Data,
-               Piece   => Data,
-               Index   => Index);
+            select
+               accept Start_Sorting (Piece : Piece_Access) do
+                  Data := Piece;
+               end Start_Sorting;
 
-            if Data = null then
-               exit;
-            else
                Do_Sort (Data.all);
-               Write_Piece (Data.all, Index);
-            end if;
+
+               accept Complete;
+            or
+               accept Stop;
+               exit;
+            end select;
          end loop;
       end Sorter;
 
-      Workers : array (1 .. 2) of Sorter;
-      Current : Piece_Access := new Piece;
-      Input   : Ada.Streams.Stream_IO.File_Type;
+      -----------------
+      -- Read_Piece --
+      -----------------
+
+      procedure Read_Piece
+        (Data  : in out Piece_Half;
+         Input : Ada.Streams.Stream_IO.File_Type)
+      is
+         Piece : Ada.Streams.Stream_Element_Array (1 .. Piece_Size);
+         for Piece'Address use Data'Address;
+         pragma Import (Ada, Piece);
+
+         Bytes : Ada.Streams.Stream_Element_Offset;
+         Last  : Index_Type;
+      begin
+         Ada.Streams.Stream_IO.Read (Input, Piece, Bytes);
+         Last := Index_Type (Bytes / Value_Size);
+
+         if Last < Data'Last then
+            Data (Last + 1 .. Data'Last) := (others => Value'Last);
+         end if;
+      end Read_Piece;
+
+      procedure Join (Left, Right : Piece_Half; Index : Piece_Index) is
+         Name   : constant String := Piece_File_Name (Index);
+         Output : Value_IO.File_Type;
+
+         L, R : Index_Type'Base := 1;
+      begin
+         Value_IO.Create
+           (Output, Name => Name, Form => "SHARED=YES");
+
+         loop
+            if L <= Left'Last and R <= Right'Last then
+               if Left (L) < Right (R) then
+                  Value_IO.Write (Output, Left (L));
+                  L := L + 1;
+               else
+                  Value_IO.Write (Output, Right (R));
+                  R := R + 1;
+               end if;
+            elsif L <= Left'Last then
+               Value_IO.Write (Output, Left (L));
+               L := L + 1;
+            elsif R <= Right'Last then
+               Value_IO.Write (Output, Right (R));
+               R := R + 1;
+            else
+               exit;
+            end if;
+         end loop;
+
+         Value_IO.Close (Output);
+      end Join;
+
+      Left, Right : Piece_Access := new Piece_Half;
+      Input       : Ada.Streams.Stream_IO.File_Type;
 
    begin
       Ada.Streams.Stream_IO.Open
@@ -250,40 +237,20 @@ procedure Driver is
          Input_Name);
 
       for J in Piece_Index loop
-         Read_Piece (Current.all, Input);
-         Queue.Put (Current, Current, J);
+         Read_Piece (Left.all, Input);
+         Sorter.Start_Sorting (Left);
+         Read_Piece (Right.all, Input);
+         Do_Sort (Right.all);
+         Sorter.Complete;
 
-         if Current = null then
-            Current := new Piece;
-         end if;
+         Join (Left.all, Right.all, J);
       end loop;
 
-      Free (Current);
-
-      for J in Workers'Range loop
-         Queue.Put (Current, null, 1);
-         Free (Current);
-      end loop;
-
+      Free (Left);
+      Free (Right);
+      Sorter.Stop;
       Ada.Streams.Stream_IO.Close (Input);
    end Write_All_Pieces;
-
-   ------------------
-   -- Write_Piece --
-   ------------------
-
-   procedure Write_Piece (Data : Piece; Index : Piece_Index) is
-      Name   : constant String := Piece_File_Name (Index);
-      Output : Ada.Streams.Stream_IO.File_Type;
-      Piece : Ada.Streams.Stream_Element_Array (1 .. Piece_Size);
-      for Piece'Address use Data'Address;
-      pragma Import (Ada, Piece);
-   begin
-      Ada.Streams.Stream_IO.Create
-        (Output, Name => Name, Form => "SHARED=YES");
-      Ada.Streams.Stream_IO.Write (Output, Piece);
-      Ada.Streams.Stream_IO.Close (Output);
-   end Write_Piece;
 
 begin
    Write_All_Pieces;
