@@ -122,7 +122,7 @@ procedure Driver is
    ----------------------
 
    procedure Write_All_Pieces is
-      subtype Index_Type is Natural range 1 .. Values_Per_Piece;
+      subtype Index_Type is Natural range 1 .. Values_Per_Piece / 2;
       type Piece_Half is array (Index_Type) of Value;
 
       type Piece_Access is access all Piece_Half;
@@ -180,7 +180,7 @@ procedure Driver is
         (Data  : in out Piece_Half;
          Input : Ada.Streams.Stream_IO.File_Type)
       is
-         Piece : Ada.Streams.Stream_Element_Array (1 .. Piece_Size);
+         Piece : Ada.Streams.Stream_Element_Array (1 .. Piece_Size / 2);
          for Piece'Address use Data'Address;
          pragma Import (Ada, Piece);
 
