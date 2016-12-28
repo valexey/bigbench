@@ -87,17 +87,7 @@ procedure Driver is
          Count := Count - 1;
 
          if not Value_IO.End_Of_File (Input (Map (Index))) then
-            loop
-               Value_IO.Read (Input (Map (Index)), Item (Index));
-
-               exit when Item (Index) /= Found;
-
-               Value_IO.Write (Output, Found);
-               Count := Count - 1;
-
-               exit when Count = 0
-                 or Value_IO.End_Of_File (Input (Map (Index)));
-            end loop;
+            Value_IO.Read (Input (Map (Index)), Item (Index));
          elsif Last > 1 then
             Item (Index) := Item (Last);
             Map (Index) := Map (Last);
